@@ -1,6 +1,27 @@
 import torch
 from EinsumNetwork import Graph, EinsumNetwork
 import datasets
+# From https://github.com/llvm/torch-mlir/tree/main/test/python/fx_importer/basic_test.py
+from typing import Optional
+import torch_mlir
+from torch_mlir.extras.fx_importer import FxImporter
+from torch_mlir import ir
+from torch_mlir.dialects import torch as torch_d
+def export_and_import(
+    f,
+    *args,
+    fx_importer: Optional[FxImporter] = None,
+    constraints: Optional[torch.export.Constraint] = None,
+    **kwargs,
+):
+    context = ir.Context()
+    torch_d.register_dialect(context)
+
+    if fx_importer is None:
+        fx_importer = FxImporter(context=context)
+    prog = torch.export.export(f, args, kwargs, constraints=constraints)
+    fx_importer.import_frozen_exported_program(prog)
+    return fx_importer.module_op
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -58,6 +79,8 @@ args = EinsumNetwork.Args(
 
 einet = EinsumNetwork.EinsumNetwork(graph, args)
 einet.initialize()
+mlir = export_and_import(einet.forward, train_x)
+print(mlir)
 einet.to(device)
 print(einet)
 

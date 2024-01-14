@@ -63,7 +63,8 @@ class ExponentialFamilyArray(torch.nn.Module):
 
         self.params = None
         self.ll = None
-        self.suff_stats = None
+        # Part of fixes for AssertionError: Mutating module attribute suff_stats during export.
+        self.suff_stats = torch.empty((12758, 111, 2))
 
         self.marginalization_idx = None
         self.marginalization_mask = None
@@ -234,11 +235,13 @@ class ExponentialFamilyArray(torch.nn.Module):
             theta = self.expectation_to_natural(phi)
 
         # suff_stats: (batch_size, self.num_var, self.num_stats)
-        self.suff_stats = self.sufficient_statistics(x)
+        # Part of fixes for AssertionError: Mutating module attribute suff_stats during export.
+        self.suff_stats.copy_(self.sufficient_statistics(x))
         # reshape for broadcasting
         shape = self.suff_stats.shape
         shape = shape[0:2] + (1,) * len(self.array_shape) + (shape[2],)
-        self.suff_stats = self.suff_stats.reshape(shape)
+        # Part of fixes for AssertionError: Mutating module attribute suff_stats during export.
+        self.suff_stats.resize_as_sparse_(torch.empty(shape))
 
         # log_normalizer: (self.num_var, *self.array_shape)
         log_normalizer = self.log_normalizer(theta)
@@ -251,6 +254,9 @@ class ExponentialFamilyArray(torch.nn.Module):
 
         # compute the exponential family tensor
         # (batch_size, self.num_var, *self.array_shape)
+        # FIXME: Currently fails with
+        # FIXME: torch._dynamo.exc.TorchRuntimeError: Failed running call_function <built-in function mul>(*(FakeTensor(..., size=(1, 111, 20, 10, 2)), FakeTensor(..., size=(12758, 111, 2))), **{}):
+        # FIXME: Attempting to broadcast a dimension of length 111 at -2! Mismatching argument at index 1 had torch.Size([12758, 111, 2]); but expected shape should be broadcastable to [1, 111, 20, 10, 2]
         self.ll = log_h + (theta.unsqueeze(0) * self.suff_stats).sum(-1) - log_normalizer
 
         if self._use_em:
